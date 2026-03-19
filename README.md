@@ -58,7 +58,7 @@ Raiz/<br>
 
 ## 🛠 Link do Site
 
-<a href="https://higher-analysis.vercel.app">HigherAnalysis<a>
+
 
 ## 💻 Configuração para Desenvolvimento
 Este projeto foi desenvolvido utilizando Visual Studio Code (VS Code)
