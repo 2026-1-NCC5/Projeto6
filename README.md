@@ -26,24 +26,28 @@ Projeto 06
 </p>-->
 
 
-Nosso projeto tem como foco o desenvolvimento de um Dashboard interativo para a startup PicMoney, que utiliza tecnologia de realidade aumentada para distribuir cupons de desconto. A proposta é oferecer uma ferramenta estratégica voltada aos principais executivos da empresa — como o CEO e o CFO — reunindo, em um só lugar, os dados mais relevantes das áreas financeira, operacional e estratégica.
-Na prática, o Dashboard permitirá que cada diretor visualize as informações mais importantes para sua área de atuação de forma clara, objetiva e personalizada. Entre os recursos, haverá um botão que permite alternar livremente entre os modos de visualização do CEO e do CFO, adaptando os indicadores exibidos conforme as necessidades e responsabilidades de cada cargo.
-O objetivo final é transformar grandes volumes de dados em insights visuais acessíveis, facilitando uma tomada de decisão mais rápida, inteligente e baseada em dados.
+Este projeto tem como objetivo desenvolver uma solução para apoiar a iniciativa Lideranças Empáticas (LE), utilizando Visão Computacional e Inteligência Artificial. A proposta é automatizar a identificação, classificação e contagem de alimentos arrecadados, como arroz, feijão e outros.
+
+Por meio de uma câmera em um ambiente controlado, o sistema analisará imagens para reconhecer os itens e contabilizá-los automaticamente, registrando os dados por equipe. Assim, o projeto busca reduzir erros da contagem manual, aumentar a confiabilidade das informações e contribuir para o desenvolvimento de habilidades tecnológicas e sociais dos participantes.
 
 ## 🛠 Estrutura de Pastas
 
 Raiz/<br>
 &emsp;├── documentos/<br>
 &emsp;&emsp;├── Entrega 1/<br>
-&emsp;&emsp;&emsp;├── Análise_Inferencial_de_Dados/<br>
-&emsp;&emsp;&emsp;├── Engenharia_de_Software_e_Arquitetura_de_Sistemas/<br>
-&emsp;&emsp;&emsp;├── Projeto_Interdisciplinar_Ciência_de_Dados/<br>
-&emsp;&emsp;&emsp;└── Contabilidade_e_Finanças/<br>
+&emsp;&emsp;&emsp;├── Algebra_linear_Vetores_e_Geometria_Analitica/<br>
+&emsp;&emsp;&emsp;├── Inteligencia_Artificial_e_Aprendizado_de_Maquina/<br>
+&emsp;&emsp;&emsp;├── Projeto_interdisciplinar_inteligencia_artificial/<br>
+&emsp;&emsp;&emsp;├── Psicologia_lideranaça_e_soft_skills/<br>
+&emsp;&emsp;&emsp;└── Sistemas_operacionais_Computacao_em_nuvem/<br>
 &emsp;&emsp;├── Entrega 2/<br>
-&emsp;&emsp;&emsp;├── Análise_Inferencial_de_Dados/<br>
-&emsp;&emsp;&emsp;├── Engenharia_de_Software_e_Arquitetura_de_Sistemas/<br>
-&emsp;&emsp;&emsp;├── Projeto_Interdisciplinar_Ciência_de_Dados/<br>
-&emsp;&emsp;&emsp;└── Contabilidade_e_Finanças/<br>
+&emsp;&emsp;&emsp;├── Algebra_linear_Vetores_e_Geometria_Analitica/<br>
+&emsp;&emsp;&emsp;├── Inteligencia_Artificial_e_Aprendizado_de_Maquina/<br>
+&emsp;&emsp;&emsp;├── Projeto_interdisciplinar_inteligencia_artificial/<br>
+&emsp;&emsp;&emsp;├── Psicologia_lideranaça_e_soft_skills/<br>
+&emsp;&emsp;&emsp;└── Sistemas_operacionais_Computacao_em_nuvem/<br>
+&emsp;&emsp;├── Documento - Projeto de Extensão - COM Empresa.docx
+&emsp;&emsp;├── Documento - Projeto de Extensão - SEM EMPRESA.docx
 &emsp;├── imagens/<br>
 &emsp;├── src/<br>
 &emsp;&emsp;├── Entrega 1/<br>
