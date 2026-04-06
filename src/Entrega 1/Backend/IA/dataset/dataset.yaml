@@ -1,0 +1,12 @@
+# Caminho absoluto para evitar qualquer erro no Windows
+path: C:/Projetos/Faculdade/AlimempatIA/dataset
+
+# Onde estão as imagens de treino e validação
+train: images/train
+val: images/val
+
+# Quantidade de classes (objetos que você marcou)
+nc: 1
+
+# Nomes das classes (Mude para o nome exato que você digitou no LabelImg)
+names: ['saco_arroz']
