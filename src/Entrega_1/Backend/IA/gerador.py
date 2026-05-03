@@ -1,94 +1,175 @@
+import os
 import torch
 import random
-from diffusers import StableDiffusionGLIGENPipeline
+import time
+from diffusers import StableDiffusionXLPipeline, AutoencoderKL
+from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection
 
-# 1. CARREGA O MODELO
-print("Carregando o modelo na placa de vídeo...")
-pipe = StableDiffusionGLIGENPipeline.from_pretrained(
-    "masterful/gligen-1-4-generation-text-box", 
-    safety_checker=None,           
-    requires_safety_checker=False
-)
-pipe = pipe.to("cuda")
+# ---------------------------------------------------------
+# 1. CONFIGURAÇÃO DE DIRETÓRIOS E YOLO
+# ---------------------------------------------------------
+PASTA_IMAGENS = "dataset/images/train"
+PASTA_LABELS = "dataset/labels/train"
 
-# 2. LISTAS DE VARIABILIDADE PARA O DATASET
-cores_embalagem = [
-    "blue and white", "red and transparent", "green and yellow", 
-    "orange", "metallic silver with bright logos", "minimalist white and red",
-    "transparent with colorful branding", "yellow and black"
-]
+os.makedirs(PASTA_IMAGENS, exist_ok=True)
+os.makedirs(PASTA_LABELS, exist_ok=True)
 
-ambientes = [
-    "on a clean wooden kitchen counter", "on a metal supermarket shelf", 
-    "inside a grocery shopping cart", "on a dark granite countertop", 
-    "on a messy pantry shelf", "isolated on a studio background"
-]
+ID_CLASSE_YOLO = 0
+CONFIANCA_MINIMA = 0.35 # Só salva se a IA tiver 35%+ de certeza que achou o saco
 
-detalhes_comerciais = [
-    "bold brand logo, nutritional information text", 
-    "colorful graphic design, barcode, price tag",
-    "commercial packaging design, text elements",
-    "supermarket product, bright labels, text"
-]
-
-# Sorteia as características para a imagem atual
-cor_escolhida = random.choice(cores_embalagem)
-ambiente_escolhido = random.choice(ambientes)
-detalhe_escolhido = random.choice(detalhes_comerciais)
-
-# 3. CONFIGURAÇÃO DINÂMICA DOS PROMPTS
-prompt_geral = (
-    f"A detailed photorealistic close-up photograph of a 1 kg commercial plastic bag of white rice. "
-    f"The packaging is {cor_escolhida}, featuring {detalhe_escolhido}. "
-    f"The bag is sitting {ambiente_escolhido}. "
-    f"Soft natural daylight, 8k resolution, highly detailed, supermarket product photography."
+# ---------------------------------------------------------
+# 2. CARREGAMENTO DOS MODELOS (GPU)
+# ---------------------------------------------------------
+print("Carregando VAE em 32-bits (Proteção contra tela preta)...")
+vae_seguro = AutoencoderKL.from_pretrained(
+    "stabilityai/stable-diffusion-xl-base-1.0", 
+    subfolder="vae",
+    torch_dtype=torch.float32 # <-- Forçamos o VAE inteiro em 32-bits desde o início
 )
 
-print(f"Prompt gerado para esta iteração:\n{prompt_geral}\n")
-
-objeto_para_marcar = ["a commercial 1 kg plastic bag of white rice"]
-
-# Atualização crucial: Removemos a restrição de texto e logos do prompt negativo!
-# Mantemos apenas restrições de qualidade visual.
-prompt_negativo = "blurry, distorted shape, bad anatomy, ugly, low quality, worst quality, out of focus, deformed packaging"
-
-# 4. DEFINE A BOUNDING BOX
-caixa_gligen = [[0.25, 0.15, 0.75, 0.85]]
-
-# 5. GERA A IMAGEM
-print("Gerando a imagem do saco de arroz...")
-resultado = pipe(
-    prompt=prompt_geral,
-    negative_prompt=prompt_negativo,
-    gligen_phrases=objeto_para_marcar,
-    gligen_boxes=caixa_gligen,
-    height=512, 
-    width=512,  
-    gligen_scheduled_sampling_beta=1.0,
-    output_type="pil",
-    num_inference_steps=50, 
-    guidance_scale=8.5, 
+print("Carregando SDXL (Gerador de Imagens)...")
+gerador = StableDiffusionXLPipeline.from_pretrained(
+    "stabilityai/stable-diffusion-xl-base-1.0", 
+    vae=vae_seguro, # Injetamos o VAE seguro aqui
+    torch_dtype=torch.float16, # O resto do modelo continua leve em 16-bits
+    variant="fp16", 
+    use_safetensors=True
 )
+gerador.to("cuda")
+# ATENÇÃO: Remova ou comente aquela linha gerador.vae.to(torch.float32) !
 
-imagem_gerada = resultado.images[0]
+gerador.enable_vae_slicing()
 
-# --- SALVAMENTO E GERAÇÃO DO ARQUIVO YOLO ---
-# Em um loop real, você usaria um contador (ex: f"saco_arroz_{i:04d}")
-nome_arquivo = "saco_arroz_treino_001"
+print("Carregando GroundingDINO (Anotador Zero-Shot)...")
+processor = AutoProcessor.from_pretrained("IDEA-Research/grounding-dino-base")
+detector = AutoModelForZeroShotObjectDetection.from_pretrained("IDEA-Research/grounding-dino-base").to("cuda")
 
-imagem_gerada.save(f"{nome_arquivo}.jpg")
-print(f"Imagem {nome_arquivo}.jpg salva com sucesso!")
+# ---------------------------------------------------------
+# 3. LISTAS DE VARIABILIDADE
+# ---------------------------------------------------------
+cores = ["blue and white", "red and transparent", "green and yellow", "orange", "minimalist white", "yellow and black"]
+ambientes = ["on a clean wooden kitchen counter", "on a metal supermarket shelf", "inside a grocery cart", "isolated on a studio background"]
+detalhes = ["bold brand logo, nutritional information text", "colorful graphic design, barcode", "commercial packaging design"]
 
-x_min, y_min, x_max, y_max = caixa_gligen[0]
-x_centro = (x_min + x_max) / 2
-y_centro = (y_min + y_max) / 2
-largura = x_max - x_min
-altura = y_max - y_min
+# ---------------------------------------------------------
+# 4. LOOP INFINITO DE GERAÇÃO
+# ---------------------------------------------------------
+contador = 1
+print("\nIniciando mineração de dados. Pressione Ctrl+C para parar.\n")
 
-id_classe = 0 
-linha_yolo = f"{id_classe} {x_centro:.6f} {y_centro:.6f} {largura:.6f} {altura:.6f}"
+while True:
+    try:
+        # Sorteia as características
+        cor = random.choice(cores)
+        ambiente = random.choice(ambientes)
+        detalhe = random.choice(detalhes)
 
-with open(f"{nome_arquivo}.txt", "w") as f:
-    f.write(linha_yolo)
+        prompt_geral = (
+            f"A highly detailed photograph of a 1 kg commercial plastic bag of white rice. "
+            f"The packaging is {cor}, featuring {detalhe}. "
+            f"The bag is sitting {ambiente}. "
+            f"Supermarket product photography, 8k resolution, sharp focus."
+        )
 
-print(f"Arquivo de anotação {nome_arquivo}.txt gerado com sucesso!")
+        print(f"[{contador}] Gerando imagem no MODO TESTE...")
+        
+        # 1. GERAÇÃO (Vírgulas corrigidas, resolução segura e passos mínimos viáveis)
+        resultado = gerador(
+            prompt=prompt_geral, 
+            height=768, 
+            width=768, 
+            num_inference_steps=25, 
+            guidance_scale=7.5, 
+            output_type="latent" 
+        )
+        latentes = resultado.images
+        
+        # --- DETECTOR DE TELA PRETA (Diagnóstico Físico da GPU) ---
+        # Se a sua placa sofrer o apagão do 16-bits, a matriz enche de "NaN"
+        if torch.isnan(latentes).any():
+            print("⚠️ ERRO DE HARDWARE: A GPU falhou no cálculo (Gerou NaN no UNet).")
+            print("A imagem sairia irremediavelmente preta. Descartando ciclo...\n")
+            continue
+        # -----------------------------------------------------------
+        
+        # 2. CONVERSÃO MANUAL
+        latentes = latentes.to(dtype=torch.float32)
+        latentes = latentes / gerador.vae.config.scaling_factor
+        
+        # 3. DECODIFICAÇÃO MANUAL
+        with torch.no_grad():
+            imagem_tensor = gerador.vae.decode(latentes, return_dict=False)[0]
+            
+        # 4. FINALIZAÇÃO
+        imagem = gerador.image_processor.postprocess(imagem_tensor, output_type="pil")[0]
+
+        # DEBUG VISUAL: Salva a imagem temporariamente antes do DINO avaliar.
+        # Assim você pode abrir o arquivo e ver se parece um saco de arroz ou apenas borrões.
+        imagem.save(f"debug_visual_{contador}.jpg")
+
+        # ---------------------------------------------------------
+        # 5. DETECÇÃO ZERO-SHOT (GROUNDING DINO)
+        # ---------------------------------------------------------
+        # O DINO entende texto, então pedimos para ele procurar isso na imagem:
+        texto_busca = "a plastic bag of rice."
+        
+        inputs = processor(images=imagem, text=texto_busca, return_tensors="pt").to("cuda")
+        
+        with torch.no_grad():
+            outputs = detector(**inputs)
+
+        # Processa o resultado do detector
+        target_sizes = torch.tensor([imagem.size[::-1]])
+        resultados_dino = processor.image_processor.post_process_object_detection(
+            outputs, target_sizes=target_sizes, threshold=CONFIANCA_MINIMA
+        )[0]
+
+        # Verifica se encontrou algo
+        if len(resultados_dino["scores"]) > 0:
+            # Pega a caixa com maior confiança
+            indice_maior_confianca = torch.argmax(resultados_dino["scores"]).item()
+            caixa = resultados_dino["boxes"][indice_maior_confianca].tolist() # [x_min, y_min, x_max, y_max] absolutos
+            
+            # Converte as coordenadas absolutas para o formato normalizado do YOLO
+            largura_img, altura_img = imagem.size
+            
+            x_min, y_min, x_max, y_max = caixa
+            
+            # Normalização (0 a 1)
+            x_centro = ((x_min + x_max) / 2) / largura_img
+            y_centro = ((y_min + y_max) / 2) / altura_img
+            largura_box = (x_max - x_min) / largura_img
+            altura_box = (y_max - y_min) / altura_img
+
+            # ---------------------------------------------------------
+            # 6. SALVAMENTO DOS ARQUIVOS
+            # ---------------------------------------------------------
+            nome_base = f"saco_arroz_{contador:05d}"
+            
+            # Salva Imagem
+            caminho_imagem = os.path.join(PASTA_IMAGENS, f"{nome_base}.jpg")
+            imagem.save(caminho_imagem)
+            
+            # Salva Label YOLO
+            linha_yolo = f"{ID_CLASSE_YOLO} {x_centro:.6f} {y_centro:.6f} {largura_box:.6f} {altura_box:.6f}"
+            caminho_label = os.path.join(PASTA_LABELS, f"{nome_base}.txt")
+            with open(caminho_label, "w") as f:
+                f.write(linha_yolo)
+                
+            print(f"Sucesso! Salvo como {nome_base} (Confiança DINO: {resultados_dino['scores'][indice_maior_confianca]:.2f})\n")
+            contador += 1
+            print("Pausando por 10 segundos para resfriamento da VRAM e GPU...")
+            time.sleep(10)
+        else:
+            print("IA gerou a imagem, mas o detector não encontrou o pacote com clareza. Descartando imagem e tentando de novo.\n")
+
+        # Limpa o cache da GPU para evitar memory leak no loop
+        torch.cuda.empty_cache()
+
+    except KeyboardInterrupt:
+        print("\nMineração interrompida pelo usuário. Finalizando com segurança.")
+        break
+    except Exception as e:
+        print(f"\nOcorreu um erro no ciclo atual: {e}. Tentando o próximo ciclo...\n")
+        time.sleep(2) # Pausa rápida para não fritar o loop de erros
+        continue
