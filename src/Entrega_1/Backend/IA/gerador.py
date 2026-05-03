@@ -1,42 +1,69 @@
 import torch
+import random
 from diffusers import StableDiffusionGLIGENPipeline
 
-# 1. CARREGA O MODELO (Em 32-bits, à prova de falhas matemáticas)
+# 1. CARREGA O MODELO
 print("Carregando o modelo na placa de vídeo...")
 pipe = StableDiffusionGLIGENPipeline.from_pretrained(
     "masterful/gligen-1-4-generation-text-box", 
     safety_checker=None,           
     requires_safety_checker=False
 )
-pipe = pipe.to("cuda") # Manda o processamento para a GPU
+pipe = pipe.to("cuda")
 
-# 2. CONFIGURAÇÃO AVANÇADA DOS PROMPTS
+# 2. LISTAS DE VARIABILIDADE PARA O DATASET
+cores_embalagem = [
+    "blue and white", "red and transparent", "green and yellow", 
+    "orange", "metallic silver with bright logos", "minimalist white and red",
+    "transparent with colorful branding", "yellow and black"
+]
 
-# Descrevemos o saco de arroz de 1KG em um ambiente realista (bancada de cozinha)
-prompt_geral = "A detailed photorealistic close-up photograph of a 1 kg clear plastic bag filled with raw white rice, sitting on a clean wooden kitchen counter. The transparent packaging reveals the individual white rice grains inside. Soft natural daylight, supermarket product photography, 8k resolution, highly detailed, sharp focus."
+ambientes = [
+    "on a clean wooden kitchen counter", "on a metal supermarket shelf", 
+    "inside a grocery shopping cart", "on a dark granite countertop", 
+    "on a messy pantry shelf", "isolated on a studio background"
+]
 
-# O objeto exato que o GLIGEN vai desenhar dentro da caixa
-objeto_para_marcar = ["a 1 kg plastic bag of white rice"]
+detalhes_comerciais = [
+    "bold brand logo, nutritional information text", 
+    "colorful graphic design, barcode, price tag",
+    "commercial packaging design, text elements",
+    "supermarket product, bright labels, text"
+]
 
-# Mantemos o prompt negativo forte para evitar textos borrados ou marcas da embalagem distorcidas
-prompt_negativo = "watermark, text, logo, words, letters, signature, brand name, stock photo text, blurry, distorted shape, bad anatomy, ugly, low quality, worst quality"
+# Sorteia as características para a imagem atual
+cor_escolhida = random.choice(cores_embalagem)
+ambiente_escolhido = random.choice(ambientes)
+detalhe_escolhido = random.choice(detalhes_comerciais)
 
-# 3. DEFINE A BOUNDING BOX
-# Mudamos a proporção: agora é um retângulo vertical para simular um saco de arroz em pé.
-# [x_min, y_min, x_max, y_max] -> Começa em 25% da esquerda, 15% do topo; vai até 75% da direita, 85% do fundo.
+# 3. CONFIGURAÇÃO DINÂMICA DOS PROMPTS
+prompt_geral = (
+    f"A detailed photorealistic close-up photograph of a 1 kg commercial plastic bag of white rice. "
+    f"The packaging is {cor_escolhida}, featuring {detalhe_escolhido}. "
+    f"The bag is sitting {ambiente_escolhido}. "
+    f"Soft natural daylight, 8k resolution, highly detailed, supermarket product photography."
+)
+
+print(f"Prompt gerado para esta iteração:\n{prompt_geral}\n")
+
+objeto_para_marcar = ["a commercial 1 kg plastic bag of white rice"]
+
+# Atualização crucial: Removemos a restrição de texto e logos do prompt negativo!
+# Mantemos apenas restrições de qualidade visual.
+prompt_negativo = "blurry, distorted shape, bad anatomy, ugly, low quality, worst quality, out of focus, deformed packaging"
+
+# 4. DEFINE A BOUNDING BOX
 caixa_gligen = [[0.25, 0.15, 0.75, 0.85]]
 
-# 4. GERA A IMAGEM
+# 5. GERA A IMAGEM
 print("Gerando a imagem do saco de arroz...")
 resultado = pipe(
     prompt=prompt_geral,
     negative_prompt=prompt_negativo,
     gligen_phrases=objeto_para_marcar,
     gligen_boxes=caixa_gligen,
-    
     height=512, 
     width=512,  
-    
     gligen_scheduled_sampling_beta=1.0,
     output_type="pil",
     num_inference_steps=50, 
@@ -45,25 +72,20 @@ resultado = pipe(
 
 imagem_gerada = resultado.images[0]
 
-# Atualizamos o nome do arquivo para o seu dataset
-nome_arquivo = "saco_arroz_1kg_001"
+# --- SALVAMENTO E GERAÇÃO DO ARQUIVO YOLO ---
+# Em um loop real, você usaria um contador (ex: f"saco_arroz_{i:04d}")
+nome_arquivo = "saco_arroz_treino_001"
 
-# Salva a imagem
 imagem_gerada.save(f"{nome_arquivo}.jpg")
 print(f"Imagem {nome_arquivo}.jpg salva com sucesso!")
 
-# --- GERAÇÃO DO ARQUIVO YOLO ---
 x_min, y_min, x_max, y_max = caixa_gligen[0]
-
-# Converte para o padrão YOLO
 x_centro = (x_min + x_max) / 2
 y_centro = (y_min + y_max) / 2
 largura = x_max - x_min
 altura = y_max - y_min
 
-# Se o arroz for a sua classe 0 no arquivo classes.txt do YOLO, mantenha 0.
 id_classe = 0 
-
 linha_yolo = f"{id_classe} {x_centro:.6f} {y_centro:.6f} {largura:.6f} {altura:.6f}"
 
 with open(f"{nome_arquivo}.txt", "w") as f:
