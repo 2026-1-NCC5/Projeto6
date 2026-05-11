@@ -29,7 +29,7 @@ print(df)
 # -------------------------
 # PASSO 3 - IA
 # -------------------------
-# 🔹 Regressão Linear
+#  Regressão Linear
 
 x = np.array(range(len(df))).reshape(-1, 1)
 y = df["cpu"]
