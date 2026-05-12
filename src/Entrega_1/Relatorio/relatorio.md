@@ -1,5 +1,12 @@
 # Relatorio de Eficiencia do Modelo AlimempatIA -- Versao 2
 
+## Integrantes do Grupo
+- Bernardo Seijas Cavalcante - 24026290
+- Eduardo Chen Zou - 24025817
+- Fabiano Henrique Chou - 24025991
+- Nicolas Roberto Jordan Morales - 24025897
+
+
 ## 1. Introducao
 
 Este relatorio apresenta uma analise da eficiencia do modelo de deteccao de objetos **AlimempatIA**, desenvolvido para identificar produtos alimenticios da cesta basica em tempo real. O modelo foi treinado utilizando a arquitetura **YOLOv8n** (variante Nano), otimizada para inferencia rapida em dispositivos com recursos limitados. Os resultados aqui descritos referem-se ao treinamento da **versao 2 (v2)** do modelo, denominada internamente de `train_slim`.
