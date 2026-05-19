@@ -4,7 +4,7 @@ from ultralytics import YOLO
 def main():
     # 1. Carregando a SUA Inteligência Artificial!
     # Passamos o caminho exato do seu arquivo best.pt
-    caminho_modelo = r'C:\Projetos\Faculdade\AlimempatIA\AlimempatIA\Projeto6\src\Entrega_1\Backend\IA\runs\detect\runs\detect\train_slim\weights\best.pt'
+    caminho_modelo = r'C:\Projetos\Faculdade\AlimempatIA\AlimempatIA\Projeto6\src\Entrega_2\Backend\IA\runs\detect\runs\detect\train_slim\weights\best.pt'
     print("Carregando o modelo personalizado...")
     model = YOLO(caminho_modelo)
 

@@ -11,7 +11,7 @@ def main():
     # Inicia o fine-tuning com os seus dados
     resultados = model.train(
         # Atualize o caminho se necessário
-        data=r'C:\Projetos\Faculdade\AlimempatIA\AlimempatIA\Projeto6\src\Entrega_1\Backend\IA\dataset_yolo\dataset.yaml',
+        data=r'C:\Projetos\Faculdade\AlimempatIA\AlimempatIA\Projeto6\src\Entrega_2\Backend\IA\dataset_yolo\dataset.yaml',
         
         # Reduzido para 40: Um excelente meio-termo. Treina rápido e já dá para ver
         # como o modelo se comporta com as novas imagens.
