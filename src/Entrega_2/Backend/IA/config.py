@@ -50,6 +50,12 @@ FRAMES_SKIP: int = int(os.getenv("FRAMES_SKIP", "3"))
 LINE_RATIO: float = float(os.getenv("LINE_RATIO", "0.5"))
 
 # ──────────────────────────────────────────────────────────────
+# Volumetria
+# ──────────────────────────────────────────────────────────────
+# Proporção de tamanho para calcular dimensões dos objetos (cm / pixel)
+CM_POR_PIXEL: float = float(os.getenv("CM_POR_PIXEL", "0.1"))
+
+# ──────────────────────────────────────────────────────────────
 # Mapeamento: índice da classe YOLO → dados para a API
 #
 # Índices conforme dataset_yolo/dataset.yaml:

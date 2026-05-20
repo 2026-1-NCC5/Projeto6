@@ -45,6 +45,7 @@ from config import (
     MODELO_PATH,
     SERVICO_HOST,
     SERVICO_PORTA,
+    CM_POR_PIXEL,
 )
 
 # ──────────────────────────────────────────────────────────────
@@ -215,9 +216,33 @@ def _thread_deteccao(modelo_path: str, parar_evento: threading.Event) -> None:
                 if prev is not None and prev != acima:
                     # ── Cruzamento detectado! ──────────────────
                     mapeamento = CLASSE_MAP[classe_idx]
+                    
+                    # Cálculo da volumetria
+                    x1, y1, x2, y2 = boxes.xyxy[i].tolist()
+                    largura_px = x2 - x1
+                    altura_px = y2 - y1
+                    
+                    largura_cm = largura_px * CM_POR_PIXEL
+                    altura_cm = altura_px * CM_POR_PIXEL
+                    
+                    # TODO: Definir a lógica de cálculo de peso do alimento a partir 
+                    # de largura_cm e altura_cm.
+                    # Exemplo temporário:
+                    peso_kg = 1.0  # Placeholder (pode ser 1 ou 5 dependendo das dimensões)
+                    
+                    classe_api_final = mapeamento["classe_api"]
+                    if classe_api_final in ["feijao", "acucar", "arroz"]:
+                        if peso_kg > 2.5:
+                            classe_api_final = f"{classe_api_final}_5kg"
+                        else:
+                            classe_api_final = f"{classe_api_final}_1kg"
+
                     deteccao = {
-                        "classe_detectada": mapeamento["classe_api"],
+                        "classe_detectada": classe_api_final,
                         "confianca": round(confianca * 100, 2),
+                        "largura_cm": round(largura_cm, 2),
+                        "altura_cm": round(altura_cm, 2),
+                        "peso_kg": peso_kg
                     }
                     if mapeamento["sku"]:
                         deteccao["sku"] = mapeamento["sku"]
@@ -226,10 +251,12 @@ def _thread_deteccao(modelo_path: str, parar_evento: threading.Event) -> None:
                         _state["deteccoes"].append(deteccao)
 
                     logger.info(
-                        "[LineCrossing] track_id=%d | classe=%s | confiança=%.1f%%",
+                        "[LineCrossing] track_id=%d | classe=%s | confiança=%.1f%% | vol=%.1fx%.1fcm",
                         track_id,
-                        mapeamento["classe_api"],
+                        classe_api_final,
                         confianca * 100,
+                        largura_cm,
+                        altura_cm
                     )
 
                 posicao_anterior[track_id] = acima
