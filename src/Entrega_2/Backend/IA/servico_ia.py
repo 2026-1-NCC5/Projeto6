@@ -95,6 +95,11 @@ class FinalizarRequest(BaseModel):
     pass
 
 
+class AtualizarPesoRequest(BaseModel):
+    """Corpo para atualizar o peso de uma detecção durante a auditoria."""
+    peso_kg: float
+
+
 # ──────────────────────────────────────────────────────────────
 # FastAPI — lifecycle
 # ──────────────────────────────────────────────────────────────
@@ -530,6 +535,108 @@ async def remover_deteccao(indice: int):
             "indice_removido": indice,
             "classe_removida": deteccao_removida.get("classe_detectada"),
             "deteccoes_restantes": restantes,
+        },
+    )
+
+
+@app.patch("/deteccoes/{indice}/peso", summary="Atualizar o peso de uma detecção durante a auditoria")
+async def atualizar_peso_deteccao(indice: int, body: AtualizarPesoRequest):
+    """
+    Atualiza o campo peso_kg de uma detecção específica enquanto o sistema
+    estiver em modo de auditoria. Permite ao operador corrigir manualmente
+    o peso estimado pelo modelo.
+
+    Args:
+        indice: posição (0-based) da detecção a ser editada.
+        body: objeto JSON contendo o novo valor de peso_kg (float).
+
+    Returns:
+        JSON com confirmação e o novo peso registrado.
+    """
+    with _state["lock"]:
+        if _state["status"] != "auditoria":
+            raise HTTPException(
+                status_code=409,
+                detail="A edição de peso só é permitida durante a auditoria.",
+            )
+        if indice < 0 or indice >= len(_state["deteccoes"]):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Índice {indice} inválido. Total de detecções: {len(_state['deteccoes'])}.",
+            )
+        if body.peso_kg <= 0:
+            raise HTTPException(
+                status_code=422,
+                detail="O peso deve ser um valor positivo.",
+            )
+
+        _state["deteccoes"][indice]["peso_kg"] = round(body.peso_kg, 3)
+        classe = _state["deteccoes"][indice].get("classe_detectada", "?")
+
+    logger.info(
+        "[Auditoria] Peso da detecção %d (%s) atualizado para %.3f kg.",
+        indice,
+        classe,
+        body.peso_kg,
+    )
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "message": "Peso atualizado com sucesso.",
+            "indice": indice,
+            "peso_kg": round(body.peso_kg, 3),
+        },
+    )
+
+
+@app.post("/retomar", summary="Retomar a contagem após uma auditoria parcial")
+async def retomar_contagem():
+    """
+    Sai do modo de auditoria e reinicia a câmera + YOLO, mantendo as
+    detecções já acumuladas na sessão atual. Permite que o operador
+    revise, corrija e depois retorne à esteira para continuar contando.
+
+    Returns:
+        JSON confirmando a retomada e o número de detecções já registradas.
+    """
+    with _state["lock"]:
+        if _state["status"] != "auditoria":
+            raise HTTPException(
+                status_code=409,
+                detail="O sistema não está em modo de auditoria.",
+            )
+        deteccoes_acumuladas = len(_state["deteccoes"])
+
+    # Cria novo evento de parada e nova thread da câmera
+    parar_evento = threading.Event()
+    thread = threading.Thread(
+        target=_thread_deteccao,
+        args=(MODELO_PATH, parar_evento),
+        daemon=True,
+        name="thread-deteccao",
+    )
+
+    with _state["lock"]:
+        _state["status"] = "ativa"
+        _state["parar_evento"] = parar_evento
+        _state["thread"] = thread
+        _state["frame_atual"] = None
+
+    thread.start()
+
+    logger.info(
+        "[Retomar] Câmera reiniciada. Sessão %s continuada com %d detecções acumuladas.",
+        _state.get("id_sessao"),
+        deteccoes_acumuladas,
+    )
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "message": "Contagem retomada. Câmera ativa novamente.",
+            "status": "ativa",
+            "deteccoes_acumuladas": deteccoes_acumuladas,
         },
     )
 

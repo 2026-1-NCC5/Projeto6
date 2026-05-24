@@ -55,6 +55,7 @@ document.addEventListener("DOMContentLoaded", () => {
     btnFinalizar.addEventListener("click", () => abrirModalDescartar());
     btnDescartarAuditoria.addEventListener("click", () => abrirModalDescartar());
     btnConfirmarEnvio.addEventListener("click", confirmarEEnviarLote);
+    document.getElementById("btn-retomar-contagem").addEventListener("click", retomarContagem);
 
     // Modal de descarte
     modalCancelar.addEventListener("click", fecharModalDescartar);
@@ -436,19 +437,21 @@ function atualizarConsoleTabela(deteccoes, status) {
         // Thumbnail do frame
         let frameCel = `<td class="col-frame"><span class="no-frame">—</span></td>`;
         if (det.tem_frame) {
+            const frameUrl = `/deteccoes/${det.indice}/frame`;
             frameCel = `
                 <td class="col-frame">
                     <img
                         class="frame-thumb"
-                        src="/deteccoes/${det.indice}/frame"
+                        src="${frameUrl}"
                         alt="Frame da detecção ${det.indice}"
                         loading="lazy"
+                        style="cursor: zoom-in;"
+                        onclick="abrirZoomImagem('${frameUrl}')"
                     >
                 </td>
             `;
         }
 
-        // Botão de remover (somente em modo de auditoria)
         const acaoCell = modoAuditoria
             ? `<td class="col-actions audit-only">
                     <button
@@ -462,6 +465,22 @@ function atualizarConsoleTabela(deteccoes, status) {
                </td>`
             : `<td class="col-actions audit-only" style="display:none;"></td>`;
 
+        // Célula de peso: input editável em modo auditoria, texto puro em modo live
+        const pesoCell = modoAuditoria
+            ? `<td>
+                    <input
+                        type="number"
+                        step="0.1"
+                        min="0.1"
+                        value="${det.peso_kg || 1}"
+                        class="peso-input"
+                        title="Editar peso"
+                        onchange="atualizarPesoBackend(${det.indice}, this.value)"
+                        onclick="event.stopPropagation()"
+                    >
+               </td>`
+            : `<td>${det.peso_kg ? `${det.peso_kg} kg` : 'N/A'}</td>`;
+
         html += `
             <tr>
                 ${frameCel}
@@ -469,7 +488,7 @@ function atualizarConsoleTabela(deteccoes, status) {
                 <td>${sku}</td>
                 <td><span class="fps-badge" style="background: rgba(139, 92, 246, 0.15); color: #c4b5fd;">${confianca}</span></td>
                 <td>${dimensoes}</td>
-                <td>${peso}</td>
+                ${pesoCell}
                 ${acaoCell}
             </tr>
         `;
@@ -485,4 +504,84 @@ function atualizarConsoleTabela(deteccoes, status) {
 function capitalizeFirstLetter(string) {
     if (!string) return "";
     return string.charAt(0).toUpperCase() + string.slice(1);
+}
+
+// ──────────────────────────────────────────────────────────
+// Zoom de Imagem
+// ──────────────────────────────────────────────────────────
+
+const imageModal = document.getElementById("image-modal");
+const zoomedImage = document.getElementById("zoomed-image");
+
+window.abrirZoomImagem = function(src) {
+    zoomedImage.src = src;
+    imageModal.style.display = "flex";
+};
+
+window.fecharZoomImagem = function(event) {
+    // Fecha ao clicar no overlay ou no botão ×; ignora clique na imagem em si
+    if (!event || event.target !== zoomedImage) {
+        imageModal.style.display = "none";
+        zoomedImage.src = "";
+    }
+};
+
+// ──────────────────────────────────────────────────────────
+// Edição de Peso
+// ──────────────────────────────────────────────────────────
+
+window.atualizarPesoBackend = async function(indice, novoPeso) {
+    const pesoFloat = parseFloat(novoPeso);
+    if (isNaN(pesoFloat) || pesoFloat <= 0) {
+        alert("Valor de peso inválido. Insira um número positivo.");
+        return;
+    }
+
+    try {
+        const response = await fetch(`/deteccoes/${indice}/peso`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ peso_kg: pesoFloat })
+        });
+
+        if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.detail || "Erro ao atualizar peso");
+        }
+
+        const data = await response.json();
+        console.log(`[Auditoria] Peso do índice ${indice} atualizado para ${data.peso_kg} kg.`);
+    } catch (err) {
+        console.error(`Erro ao atualizar peso da detecção ${indice}:`, err);
+        alert(`Não foi possível atualizar o peso: ${err.message}`);
+    }
+};
+
+// ──────────────────────────────────────────────────────────
+// Retomar Contagem
+// ──────────────────────────────────────────────────────────
+
+async function retomarContagem() {
+    const btnRetomar = document.getElementById("btn-retomar-contagem");
+    btnRetomar.disabled = true;
+    btnRetomar.textContent = "Retomando...";
+
+    try {
+        const response = await fetch("/retomar", { method: "POST" });
+        if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.detail || "Erro ao retomar contagem");
+        }
+        const data = await response.json();
+        console.log("Contagem retomada:", data);
+        ativarModoLive();
+    } catch (err) {
+        console.error("Erro ao retomar contagem:", err);
+        alert(`Não foi possível retomar a contagem: ${err.message}`);
+        btnRetomar.disabled = false;
+        btnRetomar.innerHTML = `
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            Retomar Contagem
+        `;
+    }
 }
