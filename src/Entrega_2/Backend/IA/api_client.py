@@ -9,7 +9,9 @@ Encapsula todo o ciclo de vida de uma sessão de contagem:
   5. listar_deteccoes()   → GET  /api/sessoes/:id/deteccoes
 """
 
+import json
 import logging
+import os
 import requests
 from requests.exceptions import RequestException
 
@@ -104,10 +106,24 @@ class AlimempatIAClient:
 
     def registrar_lote(self, deteccoes: list[dict], finalizar: bool = False) -> dict:
         """
-        Envia um lote de detecções para a sessão ativa.
+        Envia um lote de detecções para a sessão ativa, incluindo os frames
+        capturados durante a contagem como imagens anexadas.
+
+        O envio é feito via `multipart/form-data`:
+          - Campo `deteccoes`: array JSON serializado como string.
+          - Campo `finalizar_sessao`: string "true" ou "false".
+          - Campo `imagens`: um arquivo por detecção (mesma ordem do array).
+
+        Detecções sem `frame_path` não têm imagem associada; a API gravará
+        `imagem_url = null` para elas.
+
+        Os arquivos temporários indicados em `frame_path` são deletados
+        ao final do envio, independentemente de sucesso ou falha.
 
         Args:
-            deteccoes: lista de dicts com 'classe_detectada', 'confianca' e 'sku' (opcional).
+            deteccoes: lista de dicts com os dados de detecção. Cada dict
+                       pode conter a chave `frame_path` (caminho local da
+                       imagem), que será removida antes de serializar o JSON.
             finalizar: se True, encerra a sessão após inserir o lote.
 
         Returns:
@@ -117,20 +133,73 @@ class AlimempatIAClient:
         """
         self._garantir_sessao_ativa()
         url = f"{API_BASE_URL}/sessoes/{self._id_sessao}/deteccoes/lote"
-        payload = {"deteccoes": deteccoes, "finalizar_sessao": finalizar}
+
+        # Separa os frame_paths dos dados das detecções
+        frame_paths: list[str | None] = []
+        deteccoes_payload: list[dict] = []
+        for det in deteccoes:
+            det_copia = dict(det)
+            frame_paths.append(det_copia.pop("frame_path", None))
+            deteccoes_payload.append(det_copia)
+
+        # Abre os arquivos de imagem (apenas os que existem)
+        file_handles = []
+        files = []
         try:
-            resp = requests.post(url, json=payload, headers=self._headers(), timeout=15)
-        except RequestException as exc:
-            raise RuntimeError(f"Falha ao enviar lote de detecções: {exc}") from exc
+            for i, path in enumerate(frame_paths):
+                if path and os.path.isfile(path):
+                    fh = open(path, "rb")
+                    file_handles.append(fh)
+                    files.append(("imagens", (f"frame_{i}.jpg", fh, "image/jpeg")))
 
-        if not resp.ok:
-            raise RuntimeError(f"Erro ao registrar lote [{resp.status_code}]: {resp.text}")
+            data = {
+                "deteccoes": json.dumps(deteccoes_payload),
+                "finalizar_sessao": "true" if finalizar else "false",
+            }
 
-        data = resp.json()
-        if finalizar:
-            self._id_sessao = None  # Sessão encerrada
-        logger.info("[AlimempatIAClient] Lote registrado: %s detecções.", data.get("deteccoes_inseridas"))
-        return data
+            try:
+                resp = requests.post(
+                    url,
+                    headers=self._headers(),
+                    data=data,
+                    files=files if files else None,
+                    timeout=30,
+                )
+            except RequestException as exc:
+                raise RuntimeError(f"Falha ao enviar lote de detecções: {exc}") from exc
+
+            if not resp.ok:
+                raise RuntimeError(f"Erro ao registrar lote [{resp.status_code}]: {resp.text}")
+
+            resp_data = resp.json()
+            if finalizar:
+                self._id_sessao = None  # Sessão encerrada
+            logger.info(
+                "[AlimempatIAClient] Lote registrado: %s detecções (%d imagens enviadas).",
+                resp_data.get("deteccoes_inseridas"),
+                len(files),
+            )
+            return resp_data
+
+        finally:
+            # Fecha os buffers abertos
+            for fh in file_handles:
+                try:
+                    fh.close()
+                except Exception:
+                    pass
+
+            # Remove os arquivos temporários do disco
+            for path in frame_paths:
+                if path:
+                    try:
+                        os.remove(path)
+                    except OSError as exc_rm:
+                        logger.warning(
+                            "[AlimempatIAClient] Não foi possível remover temporário %s: %s",
+                            path,
+                            exc_rm,
+                        )
 
     def finalizar_sessao(self) -> dict:
         """

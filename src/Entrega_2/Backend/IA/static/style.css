@@ -17,8 +17,10 @@
     --success: #10b981;       /* Esmeralda */
     --success-glow: rgba(16, 185, 129, 0.3);
     --warning: #f59e0b;       /* Âmbar */
+    --warning-glow: rgba(245, 158, 11, 0.35);
     --danger: #ef4444;        /* Vermelho */
     --danger-glow: rgba(239, 68, 68, 0.4);
+    --audit-color: #f59e0b;   /* Cor do modo auditoria */
     
     --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
@@ -244,7 +246,7 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 2rem;
+    margin-bottom: 1.25rem;
     padding-bottom: 1rem;
     border-bottom: 1px solid var(--border-color);
 }
@@ -255,15 +257,30 @@ body {
     gap: 1rem;
 }
 
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
 .live-indicator {
     background: rgba(239, 68, 68, 0.15);
     color: var(--danger);
     font-size: 0.75rem;
     font-weight: 700;
-    padding: 0.25rem 0.5rem;
+    padding: 0.25rem 0.6rem;
     border-radius: 6px;
     border: 1px solid rgba(239, 68, 68, 0.3);
     animation: pulse 2s infinite;
+    white-space: nowrap;
+}
+
+/* Indicador no modo de auditoria */
+.live-indicator.audit-mode {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+    border-color: rgba(245, 158, 11, 0.35);
+    animation: none;
 }
 
 @keyframes pulse {
@@ -284,6 +301,69 @@ body {
     font-size: 0.85rem;
     color: var(--text-secondary);
 }
+
+/* ==========================================================================
+   BANNER DE AUDITORIA
+   ========================================================================== */
+
+.audit-banner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1.5rem;
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: 14px;
+    padding: 1rem 1.5rem;
+    margin-bottom: 1.5rem;
+    animation: slideDown 0.3s ease forwards;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.audit-banner-left {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.audit-icon {
+    font-size: 1.75rem;
+    flex-shrink: 0;
+}
+
+.audit-banner-left strong {
+    display: block;
+    color: var(--warning);
+    font-size: 0.95rem;
+    font-weight: 700;
+    margin-bottom: 0.2rem;
+}
+
+.audit-banner-left span {
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    line-height: 1.4;
+}
+
+.audit-banner-actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-shrink: 0;
+}
+
+/* ==========================================================================
+   GRID E PAINÉIS
+   ========================================================================== */
 
 /* Grid Layout */
 .dashboard-grid {
@@ -332,6 +412,11 @@ body {
     font-weight: 600;
 }
 
+.fps-badge.badge-paused {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+}
+
 .total-badge {
     font-size: 0.75rem;
     background: rgba(255, 255, 255, 0.08);
@@ -341,7 +426,10 @@ body {
     font-weight: 600;
 }
 
-/* Painel de Câmera / Stream */
+/* ==========================================================================
+   PAINEL DE CÂMERA / VÍDEO
+   ========================================================================== */
+
 .video-container {
     position: relative;
     width: 100%;
@@ -379,10 +467,41 @@ body {
     font-size: 0.9rem;
 }
 
-/* Painel de Console / Tabela */
+/* Overlay de câmera pausada */
+.video-paused-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(11, 15, 25, 0.9);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    z-index: 10;
+}
+
+.video-paused-overlay .paused-icon {
+    font-size: 3rem;
+    opacity: 0.7;
+}
+
+.video-paused-overlay p {
+    color: var(--warning);
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+/* ==========================================================================
+   PAINEL DE CONSOLE / TABELA DE DETECÇÕES
+   ========================================================================== */
+
 .console-list-wrapper {
     max-height: 380px;
-    overflow-y: auto;
+    overflow-y: scroll;
+    scrollbar-gutter: stable;
     border: 1px solid var(--border-color);
     border-radius: 10px;
     background: rgba(0, 0, 0, 0.2);
@@ -401,16 +520,25 @@ body {
     color: var(--text-secondary);
     font-weight: 600;
     border-bottom: 1px solid var(--border-color);
+    position: sticky;
+    top: 0;
+    z-index: 1;
 }
 
 .console-table td {
-    padding: 0.75rem 1rem;
+    padding: 0.6rem 1rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.03);
     color: var(--text-primary);
+    vertical-align: middle;
 }
 
 .console-table tbody tr {
     animation: add-row 0.3s ease forwards;
+    transition: background 0.15s ease;
+}
+
+.console-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.02);
 }
 
 @keyframes add-row {
@@ -428,6 +556,60 @@ body {
     text-align: center;
     padding: 2rem;
     color: var(--text-muted);
+}
+
+/* Coluna de thumbnail de frame */
+.col-frame {
+    width: 70px;
+    text-align: center;
+}
+
+.frame-thumb {
+    width: 56px;
+    height: 42px;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    display: block;
+    cursor: zoom-in;
+    transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.frame-thumb:hover {
+    transform: scale(1.08);
+    border-color: var(--primary);
+}
+
+.no-frame {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+/* Coluna de ações (auditoria) */
+.col-actions {
+    width: 50px;
+    text-align: center;
+}
+
+/* Botão de remover item */
+.btn-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: var(--danger);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-remove:hover {
+    background: rgba(239, 68, 68, 0.25);
+    border-color: var(--danger);
+    transform: scale(1.1);
 }
 
 /* Console Summary Footer */
@@ -461,7 +643,10 @@ body {
 .text-success { color: var(--success); }
 .text-warning { color: var(--warning); }
 
-/* Botões */
+/* ==========================================================================
+   BOTÕES
+   ========================================================================== */
+
 .btn {
     display: inline-flex;
     align-items: center;
@@ -474,6 +659,18 @@ body {
     cursor: pointer;
     border: none;
     transition: all 0.2s ease;
+}
+
+.btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.btn-sm {
+    padding: 0.4rem 0.85rem;
+    font-size: 0.8rem;
+    border-radius: 8px;
 }
 
 .btn-danger {
@@ -490,4 +687,105 @@ body {
 
 .btn-danger:active {
     transform: translateY(1px);
+}
+
+.btn-warning {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    box-shadow: none;
+}
+
+.btn-warning:hover {
+    background: rgba(245, 158, 11, 0.25);
+    transform: translateY(-1px);
+}
+
+.btn-success {
+    background: var(--success);
+    color: white;
+    box-shadow: 0 4px 12px var(--success-glow);
+}
+
+.btn-success:hover {
+    background: #059669;
+    box-shadow: 0 6px 16px var(--success-glow);
+    transform: translateY(-1px);
+}
+
+.btn-success:active {
+    transform: translateY(1px);
+}
+
+.btn-ghost {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+}
+
+.btn-ghost:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+/* ==========================================================================
+   MODAL DE CONFIRMAÇÃO
+   ========================================================================== */
+
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.65);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+    animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.modal-card {
+    background: rgb(17, 25, 40);
+    border: 1px solid var(--border-highlight);
+    border-radius: 20px;
+    padding: 2rem 2.5rem;
+    max-width: 420px;
+    width: 90%;
+    text-align: center;
+    box-shadow: 0 24px 50px rgba(0, 0, 0, 0.5);
+    animation: scaleIn 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes scaleIn {
+    from { transform: scale(0.92); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
+
+.modal-icon {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+}
+
+.modal-card h3 {
+    font-size: 1.3rem;
+    font-weight: 700;
+    margin-bottom: 0.75rem;
+}
+
+.modal-card p {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    line-height: 1.6;
+    margin-bottom: 1.75rem;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
 }

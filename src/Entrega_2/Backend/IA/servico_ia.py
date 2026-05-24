@@ -5,10 +5,14 @@ Expõe endpoints HTTP para controlar o ciclo de vida da detecção YOLO
 integrada ao backend AlimempatIA (Node.js / localhost:8080).
 
 Endpoints:
-  POST /iniciar    → Recebe credenciais, autentica no backend, inicia sessão
-                     e dispara a câmera + detecção em background.
-  POST /finalizar  → Para a detecção, envia o lote acumulado e encerra a sessão.
-  GET  /status     → Retorna o estado atual do serviço (idle / ativa).
+  POST /iniciar               → Recebe credenciais, autentica no backend, inicia sessão
+                                e dispara a câmera + detecção em background.
+  POST /pausar                → Para a câmera e entra em modo de auditoria.
+  DELETE /deteccoes/{indice}  → Remove uma detecção da memória e seu frame temporário.
+  GET  /deteccoes/{indice}/frame → Retorna a imagem do frame de uma detecção.
+  POST /enviar_auditoria      → Envia o lote auditado ao backend e encerra a sessão.
+  POST /finalizar             → Descarta todas as detecções e encerra a sessão.
+  GET  /status                → Retorna o estado atual do serviço (idle / ativa / auditoria).
 
 Line Crossing:
   Uma linha horizontal virtual é desenhada a LINE_RATIO da altura do frame.
@@ -22,7 +26,10 @@ Para iniciar:
   (ou configure via variáveis de ambiente em .env)
 """
 
+import asyncio
 import logging
+import os
+import tempfile
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -30,8 +37,8 @@ from typing import Any
 
 import cv2
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -64,7 +71,7 @@ logger = logging.getLogger("servico_ia")
 # Estado global do serviço (compartilhado entre threads)
 # ──────────────────────────────────────────────────────────────
 _state: dict[str, Any] = {
-    "status": "idle",          # "idle" | "ativa"
+    "status": "idle",          # "idle" | "ativa" | "auditoria"
     "id_sessao": None,
     "deteccoes": [],           # lista de dicts acumulados
     "cliente": None,           # instância de AlimempatIAClient
@@ -247,6 +254,20 @@ def _thread_deteccao(modelo_path: str, parar_evento: threading.Event) -> None:
                     if mapeamento["sku"]:
                         deteccao["sku"] = mapeamento["sku"]
 
+                    # Salva o frame anotado completo em arquivo temporário
+                    # para ser enviado como imagem ao backend.
+                    # O arquivo será deletado pelo api_client após o envio.
+                    if frame_anotado is not None:
+                        try:
+                            fd, frame_path = tempfile.mkstemp(suffix=".jpg", prefix="det_")
+                            os.close(fd)  # fecha o descriptor; cv2.imwrite abre por conta
+                            cv2.imwrite(frame_path, frame_anotado)
+                            deteccao["frame_path"] = frame_path
+                        except Exception as exc_img:
+                            logger.warning(
+                                "[LineCrossing] Falha ao salvar frame temporário: %s", exc_img
+                            )
+
                     with _state["lock"]:
                         _state["deteccoes"].append(deteccao)
 
@@ -299,7 +320,7 @@ async def iniciar(body: IniciarRequest):
     # 1. Autenticar no backend
     cliente = AlimempatIAClient()
     try:
-        login_data = cliente.login(body.username, body.password)
+        login_data = await asyncio.to_thread(cliente.login, body.username, body.password)
     except ValueError as exc:
         raise HTTPException(status_code=401, detail=str(exc))
     except RuntimeError as exc:
@@ -307,7 +328,7 @@ async def iniciar(body: IniciarRequest):
 
     # 2. Iniciar sessão no backend
     try:
-        sessao_data = cliente.iniciar_sessao()
+        sessao_data = await asyncio.to_thread(cliente.iniciar_sessao)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
@@ -368,17 +389,18 @@ async def finalizar(_body: FinalizarRequest = None):
         deteccoes_snapshot = list(_state["deteccoes"])
         cliente: AlimempatIAClient = _state["cliente"]
 
-    # Aguarda a thread encerrar (máx. 5s)
-    if _state["thread"]:
-        _state["thread"].join(timeout=5)
+    # Aguarda a thread encerrar sem bloquear o event loop (máx. 5s)
+    thread_ref = _state.get("thread")
+    if thread_ref:
+        await asyncio.to_thread(thread_ref.join, 5)
 
     # Envia o lote ao backend (finaliza sessão automaticamente)
     try:
         if deteccoes_snapshot:
-            resultado = cliente.registrar_lote(deteccoes_snapshot, finalizar=True)
+            resultado = await asyncio.to_thread(cliente.registrar_lote, deteccoes_snapshot, True)
         else:
             # Nenhuma detecção — apenas finaliza a sessão
-            resultado = cliente.finalizar_sessao()
+            resultado = await asyncio.to_thread(cliente.finalizar_sessao)
             resultado["deteccoes_inseridas"] = 0
             resultado["resumo"] = {"total": 0, "reconhecidos": 0, "nao_reconhecidos": 0}
     except RuntimeError as exc:
@@ -408,6 +430,186 @@ async def finalizar(_body: FinalizarRequest = None):
         status_code=200,
         content={
             "message": "Sessão finalizada com sucesso.",
+            "deteccoes_enviadas": resultado.get("deteccoes_inseridas", 0),
+            "resumo": resultado.get("resumo", {}),
+            "sessao_finalizada": True,
+        },
+    )
+
+
+@app.post("/pausar", summary="Pausar câmera e entrar em modo de auditoria")
+async def pausar():
+    """
+    Para a thread de câmera e muda o status para 'auditoria'.
+    As detecções acumuladas ficam na memória para revisão.
+    A sessão no backend permanece aberta.
+
+    Returns:
+        JSON com número de detecções pendentes de revisão.
+    """
+    logger.info("[DEBUG] Rota /pausar acessada pelo frontend!")
+    with _state["lock"]:
+        if _state["status"] != "ativa":
+            raise HTTPException(
+                status_code=409,
+                detail="Nenhuma sessão ativa para pausar.",
+            )
+        # Sinaliza parada da câmera
+        _state["parar_evento"].set()
+        deteccoes_pendentes = len(_state["deteccoes"])
+
+    # Aguarda thread da câmera encerrar sem bloquear o event loop (máx. 5s)
+    thread_ref = _state.get("thread")
+    if thread_ref:
+        await asyncio.to_thread(thread_ref.join, 5)
+
+    with _state["lock"]:
+        _state["status"] = "auditoria"
+        _state["thread"] = None
+        _state["frame_atual"] = None
+
+    logger.info("Câmera pausada. Modo de auditoria ativado. %d detecções pendentes.", deteccoes_pendentes)
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "message": "Câmera pausada. Sistema em modo de auditoria.",
+            "status": "auditoria",
+            "deteccoes_pendentes": deteccoes_pendentes,
+        },
+    )
+
+
+@app.delete("/deteccoes/{indice}", summary="Remover detecção da lista de auditoria")
+async def remover_deteccao(indice: int):
+    """
+    Remove a detecção no índice informado da lista em memória.
+    O arquivo de frame temporário associado (frame_path) também é deletado do disco.
+
+    Args:
+        indice: posição (0-based) da detecção a ser removida.
+
+    Returns:
+        JSON com confirmação e detecções restantes.
+    """
+    with _state["lock"]:
+        if _state["status"] != "auditoria":
+            raise HTTPException(
+                status_code=409,
+                detail="A remoção de detecções só é permitida durante a auditoria.",
+            )
+        if indice < 0 or indice >= len(_state["deteccoes"]):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Índice {indice} inválido. Total de detecções: {len(_state['deteccoes'])}.",
+            )
+
+        deteccao_removida = _state["deteccoes"].pop(indice)
+        restantes = len(_state["deteccoes"])
+
+    # Deleta frame temporário do disco (fora do lock para não bloquear)
+    frame_path = deteccao_removida.get("frame_path")
+    if frame_path and os.path.isfile(frame_path):
+        try:
+            os.remove(frame_path)
+            logger.info("[Auditoria] Frame temporário removido: %s", frame_path)
+        except OSError as exc:
+            logger.warning("[Auditoria] Falha ao remover frame temporário %s: %s", frame_path, exc)
+
+    logger.info(
+        "[Auditoria] Detecção %d removida (%s). Restam %d itens.",
+        indice,
+        deteccao_removida.get("classe_detectada", "?"),
+        restantes,
+    )
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "message": "Detecção removida com sucesso.",
+            "indice_removido": indice,
+            "classe_removida": deteccao_removida.get("classe_detectada"),
+            "deteccoes_restantes": restantes,
+        },
+    )
+
+
+@app.get("/deteccoes/{indice}/frame", summary="Retornar imagem do frame de uma detecção")
+async def obter_frame_deteccao(indice: int):
+    """
+    Serve a imagem JPEG do frame capturado no momento da detecção.
+    Usado pelo frontend para exibir o preview durante a auditoria.
+
+    Args:
+        indice: posição (0-based) da detecção.
+
+    Returns:
+        Imagem JPEG do frame ou 404 se não disponível.
+    """
+    with _state["lock"]:
+        if indice < 0 or indice >= len(_state["deteccoes"]):
+            raise HTTPException(status_code=404, detail="Índice de detecção inválido.")
+        frame_path = _state["deteccoes"][indice].get("frame_path")
+
+    if not frame_path or not os.path.isfile(frame_path):
+        raise HTTPException(status_code=404, detail="Frame não disponível para esta detecção.")
+
+    return FileResponse(frame_path, media_type="image/jpeg")
+
+
+@app.post("/enviar_auditoria", summary="Confirmar e enviar lote auditado ao backend")
+async def enviar_auditoria():
+    """
+    Envia o lote de detecções que sobrou após a auditoria ao backend Node.js,
+    finalizando a sessão de contagem.
+
+    Returns:
+        JSON com resumo do envio.
+    """
+    with _state["lock"]:
+        if _state["status"] != "auditoria":
+            raise HTTPException(
+                status_code=409,
+                detail="O envio de auditoria só é permitido no modo de auditoria.",
+            )
+        deteccoes_snapshot = list(_state["deteccoes"])
+        cliente: AlimempatIAClient = _state["cliente"]
+
+    try:
+        if deteccoes_snapshot:
+            resultado = await asyncio.to_thread(cliente.registrar_lote, deteccoes_snapshot, True)
+        else:
+            # Nenhuma detecção restante — apenas finaliza a sessão
+            resultado = await asyncio.to_thread(cliente.finalizar_sessao)
+            resultado["deteccoes_inseridas"] = 0
+            resultado["resumo"] = {"total": 0, "reconhecidos": 0, "nao_reconhecidos": 0}
+    except RuntimeError as exc:
+        with _state["lock"]:
+            _state["status"] = "idle"
+            _state["id_sessao"] = None
+            _state["deteccoes"] = []
+            _state["cliente"] = None
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    # Reseta estado
+    with _state["lock"]:
+        _state["status"] = "idle"
+        _state["id_sessao"] = None
+        _state["deteccoes"] = []
+        _state["cliente"] = None
+        _state["thread"] = None
+        _state["parar_evento"] = None
+        _state["frame_atual"] = None
+
+    logger.info(
+        "[Auditoria] Lote auditado enviado. Detecções confirmadas: %d",
+        resultado.get("deteccoes_inseridas", 0),
+    )
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "message": "Lote auditado enviado com sucesso.",
             "deteccoes_enviadas": resultado.get("deteccoes_inseridas", 0),
             "resumo": resultado.get("resumo", {}),
             "sessao_finalizada": True,
@@ -452,7 +654,7 @@ async def iniciar_jwt(body: IniciarJWTRequest):
     # Instancia o cliente com o token fornecido
     cliente = AlimempatIAClient(token=body.token)
     try:
-        sessao_data = cliente.iniciar_sessao()
+        sessao_data = await asyncio.to_thread(cliente.iniciar_sessao)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
@@ -500,7 +702,7 @@ async def root_page(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
-def gerar_frames():
+async def gerar_frames():
     """
     Gerador contínuo para o streaming de vídeo MJPEG.
     """
@@ -511,7 +713,7 @@ def gerar_frames():
 
         if status != "ativa":
             # Quando inativo, aguarda um tempo para liberar a CPU
-            time.sleep(0.2)
+            await asyncio.sleep(0.2)
             continue
 
         if frame is not None:
@@ -519,7 +721,7 @@ def gerar_frames():
                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
         
         # Limitador de FPS (~25 fps)
-        time.sleep(0.04)
+        await asyncio.sleep(0.04)
 
 
 @app.get("/video_feed", summary="Stream de vídeo com as detecções em tempo real")
@@ -540,10 +742,18 @@ async def estado():
     acumuladas para preencher o console web em tempo real.
     """
     with _state["lock"]:
+        # Injeta o índice de cada detecção e omite frame_path (dado interno de servidor)
+        deteccoes_publicas = []
+        for i, det in enumerate(_state["deteccoes"]):
+            det_publico = {k: v for k, v in det.items() if k != "frame_path"}
+            det_publico["indice"] = i
+            det_publico["tem_frame"] = bool(det.get("frame_path") and os.path.isfile(det.get("frame_path", "")))
+            deteccoes_publicas.append(det_publico)
+
         return {
             "status": _state["status"],
             "id_sessao": _state["id_sessao"],
-            "deteccoes": _state["deteccoes"]
+            "deteccoes": deteccoes_publicas,
         }
 
 
