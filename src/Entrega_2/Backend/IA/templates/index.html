@@ -81,6 +81,10 @@
                     </div>
                 </div>
                 <div class="audit-banner-actions">
+                    <button class="btn btn-warning btn-sm" id="btn-retomar-contagem">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                        Retomar Contagem
+                    </button>
                     <button class="btn btn-danger btn-sm" id="btn-descartar-auditoria">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                         Descartar Tudo
@@ -173,6 +177,12 @@
                 <button class="btn btn-danger" id="modal-confirmar-descartar">Sim, Descartar</button>
             </div>
         </div>
+    </div>
+
+    <!-- Modal de Zoom de Imagem -->
+    <div class="image-modal-overlay" id="image-modal" style="display:none;" onclick="fecharZoomImagem(event)">
+        <span class="image-modal-close" onclick="fecharZoomImagem()">&times;</span>
+        <img class="image-modal-content" id="zoomed-image">
     </div>
 
     <!-- Script principal -->
