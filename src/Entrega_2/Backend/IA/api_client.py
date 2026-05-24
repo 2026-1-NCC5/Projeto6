@@ -24,8 +24,8 @@ class AlimempatIAClient:
     backend Node.js do AlimempatIA.
     """
 
-    def __init__(self) -> None:
-        self._token: str | None = None
+    def __init__(self, token: str | None = None) -> None:
+        self._token = token
         self._id_sessao: int | None = None
 
     # ──────────────────────────────────────────────────────────

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AlimempatIA — Painel de Contagem</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <!-- Estilo customizado -->
+    <link rel="stylesheet" href="/static/style.css">
+    <!-- QRCode.js e Socket.IO via CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+<body>
+
+    <!-- Container Principal com efeitos de fundo -->
+    <div class="background-decor">
+        <div class="glow-orb" id="orb-1"></div>
+        <div class="glow-orb" id="orb-2"></div>
+    </div>
+
+    <div class="app-container">
+        
+        <!-- ==================== TELA 1: LOGIN POR QR CODE ==================== -->
+        <section id="screen-auth" class="screen active">
+            <div class="auth-card">
+                <div class="auth-header">
+                    <div class="logo-badge">IA</div>
+                    <h1>AlimempatIA</h1>
+                    <p>Sessão de Contagem Inteligente</p>
+                </div>
+                
+                <div class="qr-container-wrapper">
+                    <div id="qrcode-box" class="qrcode-box">
+                        <!-- QR Code será inserido aqui -->
+                    </div>
+                    <div class="qr-spinner" id="qr-loading">
+                        <div class="spinner"></div>
+                    </div>
+                </div>
+
+                <div class="auth-footer">
+                    <p class="status-msg" id="auth-status-msg">Aguardando geração do QR Code...</p>
+                    <span class="instruction-text">Abra o aplicativo AlimempatIA no seu celular, escaneie o código acima para autorizar o início do processo.</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== TELA 2: DASHBOARD CAMERA / CONSOLE ==================== -->
+        <section id="screen-dashboard" class="screen">
+            <!-- Header do Dashboard -->
+            <header class="dashboard-header">
+                <div class="header-left">
+                    <span class="live-indicator">● LIVE</span>
+                    <h2>Painel de Contagem Ativo</h2>
+                    <span class="session-id-tag">Sessão: <strong id="display-session-id">#--</strong></span>
+                </div>
+                <div class="header-right">
+                    <button class="btn btn-danger" id="btn-finalizar">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+                        Finalizar Sessão
+                    </button>
+                </div>
+            </header>
+
+            <!-- Grid do Dashboard -->
+            <div class="dashboard-grid">
+                
+                <!-- Coluna da Esquerda: Câmera / Stream de Vídeo -->
+                <div class="panel camera-panel">
+                    <div class="panel-header">
+                        <h3>Feed da Câmera (YOLOv8)</h3>
+                        <span class="fps-badge">Detectando</span>
+                    </div>
+                    <div class="video-container">
+                        <img id="video-stream" src="" alt="Aguardando feed da câmera..." class="video-feed-img">
+                        <div class="video-placeholder" id="video-placeholder">
+                            <div class="spinner"></div>
+                            <p>Iniciando câmera e modelo de IA...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Coluna da Direita: Console de Detecções -->
+                <div class="panel console-panel">
+                    <div class="panel-header">
+                        <h3>Itens Detectados pela Esteira</h3>
+                        <span class="total-badge" id="total-count-badge">0 itens</span>
+                    </div>
+                    
+                    <div class="console-list-wrapper">
+                        <table class="console-table">
+                            <thead>
+                                <tr>
+                                    <th>Produto</th>
+                                    <th>SKU</th>
+                                    <th>Confiança</th>
+                                    <th>Dimensões</th>
+                                    <th>Peso Est.</th>
+                                </tr>
+                            </thead>
+                            <tbody id="detections-tbody">
+                                <!-- Preenchido dinamicamente -->
+                                <tr class="empty-row">
+                                    <td colspan="5">Nenhum item detectado na linha de contagem até o momento.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Resumo rápido -->
+                    <div class="console-summary">
+                        <div class="summary-card">
+                            <span class="summary-label">Reconhecidos</span>
+                            <span class="summary-value text-success" id="sum-recognized">0</span>
+                        </div>
+                        <div class="summary-card">
+                            <span class="summary-label">Desconhecidos</span>
+                            <span class="summary-value text-warning" id="sum-unrecognized">0</span>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+    </div>
+
+    <!-- Script principal -->
+    <script src="/static/app.js"></script>
+</body>
+</html>

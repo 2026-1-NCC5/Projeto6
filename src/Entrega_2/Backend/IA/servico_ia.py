@@ -30,8 +30,10 @@ from typing import Any
 
 import cv2
 import uvicorn
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from ultralytics import YOLO
 
@@ -68,6 +70,7 @@ _state: dict[str, Any] = {
     "cliente": None,           # instância de AlimempatIAClient
     "thread": None,            # thread da câmera
     "parar_evento": None,      # threading.Event para sinalizar parada
+    "frame_atual": None,       # último frame processado em formato bytes JPEG
     "lock": threading.Lock(),  # protege deteccoes e status
 }
 
@@ -105,6 +108,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
 
 
 # ──────────────────────────────────────────────────────────────
@@ -160,12 +166,6 @@ def _thread_deteccao(modelo_path: str, parar_evento: threading.Event) -> None:
 
         # Processa 1 a cada FRAMES_SKIP frames
         if contador_frames % FRAMES_SKIP != 0:
-            if frame_anotado is not None:
-                cv2.imshow("AlimempatIA — Deteccao", frame_anotado)
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                logger.info("[Thread] Tecla 'q' pressionada pelo operador.")
-                parar_evento.set()
-                break
             continue
 
         altura, largura = frame.shape[:2]
@@ -261,17 +261,14 @@ def _thread_deteccao(modelo_path: str, parar_evento: threading.Event) -> None:
 
                 posicao_anterior[track_id] = acima
 
-        # Exibe frame na tela do operador
+        # Armazena frame na memória para o stream do navegador
         if frame_anotado is not None:
-            cv2.imshow("AlimempatIA — Deteccao", frame_anotado)
-
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            logger.info("[Thread] Tecla 'q' pressionada pelo operador.")
-            parar_evento.set()
-            break
+            ret_encode, jpeg = cv2.imencode(".jpg", frame_anotado)
+            if ret_encode:
+                with _state["lock"]:
+                    _state["frame_atual"] = jpeg.tobytes()
 
     cap.release()
-    cv2.destroyAllWindows()
     logger.info("[Thread] Câmera encerrada.")
 
 
@@ -432,6 +429,121 @@ async def status():
             "status": _state["status"],
             "id_sessao": _state["id_sessao"],
             "deteccoes_acumuladas": len(_state["deteccoes"]),
+        }
+
+
+class IniciarJWTRequest(BaseModel):
+    token: str
+
+
+@app.post("/iniciar-jwt", summary="Iniciar sessão de contagem via Token JWT direto")
+async def iniciar_jwt(body: IniciarJWTRequest):
+    """
+    Recebe um token JWT pré-existente (obtido via autenticação de QR Code),
+    inicia a sessão de contagem no backend Node.js e dispara a câmera.
+    """
+    with _state["lock"]:
+        if _state["status"] == "ativa":
+            raise HTTPException(
+                status_code=409,
+                detail="Já existe uma sessão de contagem ativa. Finalize-a antes de iniciar uma nova.",
+            )
+
+    # Instancia o cliente com o token fornecido
+    cliente = AlimempatIAClient(token=body.token)
+    try:
+        sessao_data = cliente.iniciar_sessao()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    # Preparar evento de parada e thread da câmera
+    parar_evento = threading.Event()
+    thread = threading.Thread(
+        target=_thread_deteccao,
+        args=(MODELO_PATH, parar_evento),
+        daemon=True,
+        name="thread-deteccao",
+    )
+
+    # Atualizar estado global
+    with _state["lock"]:
+        _state["status"] = "ativa"
+        _state["id_sessao"] = sessao_data["id_sessao"]
+        _state["deteccoes"] = []
+        _state["cliente"] = cliente
+        _state["thread"] = thread
+        _state["parar_evento"] = parar_evento
+        _state["frame_atual"] = None
+
+    thread.start()
+
+    logger.info(
+        "Sessão iniciada via JWT. id_sessao=%d",
+        sessao_data["id_sessao"],
+    )
+
+    return JSONResponse(
+        status_code=201,
+        content={
+            "message": "Sessão de contagem iniciada. Câmera ativa.",
+            "id_sessao": sessao_data["id_sessao"],
+            "status": "ativa",
+        },
+    )
+
+
+@app.get("/", summary="Renderizar a interface gráfica web")
+async def root_page(request: Request):
+    """
+    Exibe a interface de login por QR Code e Dashboard de Contagem.
+    """
+    return templates.TemplateResponse("index.html", {"request": request})
+
+
+def gerar_frames():
+    """
+    Gerador contínuo para o streaming de vídeo MJPEG.
+    """
+    while True:
+        with _state["lock"]:
+            frame = _state.get("frame_atual")
+            status = _state.get("status")
+
+        if status != "ativa":
+            # Quando inativo, aguarda um tempo para liberar a CPU
+            time.sleep(0.2)
+            continue
+
+        if frame is not None:
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+        
+        # Limitador de FPS (~25 fps)
+        time.sleep(0.04)
+
+
+@app.get("/video_feed", summary="Stream de vídeo com as detecções em tempo real")
+async def video_feed():
+    """
+    Fornece o feed MJPEG ao navegador.
+    """
+    return StreamingResponse(
+        gerar_frames(),
+        media_type="multipart/x-mixed-replace; boundary=frame"
+    )
+
+
+@app.get("/estado", summary="Consultar estado e detecções acumuladas em tempo real")
+async def estado():
+    """
+    Retorna o estado detalhado do serviço, incluindo as detecções
+    acumuladas para preencher o console web em tempo real.
+    """
+    with _state["lock"]:
+        return {
+            "status": _state["status"],
+            "id_sessao": _state["id_sessao"],
+            "deteccoes": _state["deteccoes"]
         }
 
 
