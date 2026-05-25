@@ -2,3 +2,8 @@
 .env
 __pycache__/
 *.pyc
+dataset_yolo_florence/
+dataset_yolo/
+dataset_gerado/ 
+dataset/
+imagens_reais/
