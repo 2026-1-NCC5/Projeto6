@@ -27,7 +27,7 @@ SERVICO_HOST: str = os.getenv("SERVICO_HOST", "0.0.0.0")
 # ──────────────────────────────────────────────────────────────
 MODELO_PATH: str = os.getenv(
     "MODELO_PATH",
-    r"runs\detect\runs\detect\train_slim\weights\best.pt"
+    r"runs\detect\train-2\weights\best.pt"
 )
 
 # Confiança mínima para considerar uma detecção válida (0.0 – 1.0)
@@ -70,10 +70,44 @@ CM_POR_PIXEL: float = float(os.getenv("CM_POR_PIXEL", "0.1"))
 #   arroz | feijao | macarrao | oleo | leite | acucar | fuba | outros
 # ──────────────────────────────────────────────────────────────
 CLASSE_MAP: dict = {
-    0: {"classe_api": "arroz",    "sku": "ARR-005"},
-    1: {"classe_api": "feijao",   "sku": "FEI-001"},
-    2: {"classe_api": "acucar",   "sku": None},
-    3: {"classe_api": "macarrao", "sku": "MAC-500"},
-    4: {"classe_api": "fuba",     "sku": None},
-    5: {"classe_api": "oleo",     "sku": "OLE-900"},
+    0: {
+        "classe_base": "arroz",
+        "variantes": [
+            {"peso_kg": 1.0, "sku": "ARR-001", "classe_api": "arroz"},
+            {"peso_kg": 5.0, "sku": "ARR-005", "classe_api": "arroz"},
+            {"peso_kg": 10.0, "sku": "ARR-010", "classe_api": "arroz"}
+        ]
+    },
+    1: {
+        "classe_base": "feijao",
+        "variantes": [
+            {"peso_kg": 1.0, "sku": "FEI-001", "classe_api": "feijao"},
+            {"peso_kg": 5.0, "sku": "FEI-005", "classe_api": "feijao"}
+        ]
+    },
+    2: {
+        "classe_base": "acucar",
+        "variantes": [
+            {"peso_kg": 1.0, "sku": "ACU-001", "classe_api": "acucar"},
+            {"peso_kg": 5.0, "sku": "ACU-005", "classe_api": "acucar"}
+        ]
+    },
+    3: {
+        "classe_base": "macarrao",
+        "variantes": [
+            {"peso_kg": 0.5, "sku": "MAC-500", "classe_api": "macarrao"}
+        ]
+    },
+    4: {
+        "classe_base": "fuba",
+        "variantes": [
+            {"peso_kg": 0.5, "sku": "FUB-500", "classe_api": "fuba"}
+        ]
+    },
+    5: {
+        "classe_base": "oleo",
+        "variantes": [
+            {"peso_kg": 0.9, "sku": "OLE-900", "classe_api": "oleo"}
+        ]
+    },
 }

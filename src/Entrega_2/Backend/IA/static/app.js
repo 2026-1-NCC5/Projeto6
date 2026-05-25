@@ -184,6 +184,11 @@ function ativarModoLive() {
 
     // Botões
     btnPausar.style.display = "inline-flex";
+    btnPausar.disabled = false;
+    btnPausar.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+        Pausar para Auditoria
+    `;
     btnFinalizar.style.display = "inline-flex";
     btnFinalizar.innerHTML = `
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
@@ -257,6 +262,13 @@ function voltarParaAuth() {
     btnPausar.style.display = "inline-flex";
     btnPausar.disabled = false;
     btnFinalizar.disabled = false;
+    
+    // Reseta o estado do botão de confirmar envio para evitar vazamento entre sessões
+    btnConfirmarEnvio.disabled = false;
+    btnConfirmarEnvio.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        Confirmar e Enviar
+    `;
 
     // Reseta rastreadores para próxima sessão
     lastDetectionCount = -1;
@@ -324,7 +336,12 @@ async function confirmarEEnviarLote() {
     try {
         const response = await fetch("/enviar_auditoria", { method: "POST" });
         if (!response.ok) {
-            const errData = await response.json();
+            let errData;
+            try {
+                errData = await response.json();
+            } catch (jsonErr) {
+                errData = { detail: "Erro desconhecido no servidor." };
+            }
             throw new Error(errData.detail || "Erro ao enviar lote");
         }
         const data = await response.json();
@@ -334,6 +351,7 @@ async function confirmarEEnviarLote() {
     } catch (err) {
         console.error("Erro ao enviar lote auditado:", err);
         alert(`Erro ao enviar o lote: ${err.message}`);
+    } finally {
         btnConfirmarEnvio.disabled = false;
         btnConfirmarEnvio.innerHTML = `
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -578,6 +596,8 @@ async function retomarContagem() {
     } catch (err) {
         console.error("Erro ao retomar contagem:", err);
         alert(`Não foi possível retomar a contagem: ${err.message}`);
+    } finally {
+        // Garante que o botão sempre seja resetado
         btnRetomar.disabled = false;
         btnRetomar.innerHTML = `
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>

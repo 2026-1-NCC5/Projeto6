@@ -237,27 +237,33 @@ def _thread_deteccao(modelo_path: str, parar_evento: threading.Event) -> None:
                     largura_cm = largura_px * CM_POR_PIXEL
                     altura_cm = altura_px * CM_POR_PIXEL
                     
-                    # TODO: Definir a lógica de cálculo de peso do alimento a partir 
+                    # TODO: Definir a lógica real de cálculo de peso do alimento a partir 
                     # de largura_cm e altura_cm.
                     # Exemplo temporário:
-                    peso_kg = 1.0  # Placeholder (pode ser 1 ou 5 dependendo das dimensões)
+                    peso_estimado = 1.0  
                     
-                    classe_api_final = mapeamento["classe_api"]
-                    if classe_api_final in ["feijao", "acucar", "arroz"]:
-                        if peso_kg > 2.5:
-                            classe_api_final = f"{classe_api_final}_5kg"
-                        else:
-                            classe_api_final = f"{classe_api_final}_1kg"
+                    # Encontra a variante com o peso mais próximo
+                    variantes = mapeamento.get("variantes", [])
+                    if variantes:
+                        variante = min(variantes, key=lambda v: abs(v["peso_kg"] - peso_estimado))
+                        classe_api_final = variante["classe_api"]
+                        sku_final = variante["sku"]
+                        peso_final = variante["peso_kg"]
+                    else:
+                        classe_api_final = mapeamento.get("classe_base", "desconhecido")
+                        sku_final = None
+                        peso_final = peso_estimado
 
                     deteccao = {
+                        "classe_idx": classe_idx, # Mantém o índice original para reavaliação na auditoria
                         "classe_detectada": classe_api_final,
                         "confianca": round(confianca * 100, 2),
                         "largura_cm": round(largura_cm, 2),
                         "altura_cm": round(altura_cm, 2),
-                        "peso_kg": peso_kg
+                        "peso_kg": peso_final
                     }
-                    if mapeamento["sku"]:
-                        deteccao["sku"] = mapeamento["sku"]
+                    if sku_final:
+                        deteccao["sku"] = sku_final
 
                     # Salva o frame anotado completo em arquivo temporário
                     # para ser enviado como imagem ao backend.
@@ -571,6 +577,20 @@ async def atualizar_peso_deteccao(indice: int, body: AtualizarPesoRequest):
             )
 
         _state["deteccoes"][indice]["peso_kg"] = round(body.peso_kg, 3)
+        
+        # Reavalia o sku com base no novo peso, se a detecção tiver o índice da classe original
+        classe_idx = _state["deteccoes"][indice].get("classe_idx")
+        if classe_idx is not None and classe_idx in CLASSE_MAP:
+            variantes = CLASSE_MAP[classe_idx].get("variantes", [])
+            if variantes:
+                # O frontend deve enviar um dos pesos disponíveis, então pegamos o mais próximo por segurança
+                nova_variante = min(variantes, key=lambda v: abs(v["peso_kg"] - body.peso_kg))
+                _state["deteccoes"][indice]["classe_detectada"] = nova_variante["classe_api"]
+                if nova_variante["sku"]:
+                    _state["deteccoes"][indice]["sku"] = nova_variante["sku"]
+                elif "sku" in _state["deteccoes"][indice]:
+                    del _state["deteccoes"][indice]["sku"]
+
         classe = _state["deteccoes"][indice].get("classe_detectada", "?")
 
     logger.info(
@@ -739,6 +759,15 @@ async def status():
             "id_sessao": _state["id_sessao"],
             "deteccoes_acumuladas": len(_state["deteccoes"]),
         }
+
+
+@app.get("/produtos_suportados", summary="Retorna os produtos e opções de pesos disponíveis")
+async def produtos_suportados():
+    """
+    Retorna o mapeamento de produtos suportados e seus respectivos pesos (variantes).
+    Útil para popular selectboxes na auditoria do frontend.
+    """
+    return JSONResponse(status_code=200, content=CLASSE_MAP)
 
 
 class IniciarJWTRequest(BaseModel):

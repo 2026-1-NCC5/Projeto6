@@ -10,11 +10,11 @@ def main():
     # Inicia o fine-tuning com os seus dados
     resultados = model.train(
         # Atualize o caminho se necessário (conforme o local onde você salvou o arquivo)
-        data=r'C:\Projetos\Faculdade\AlimempatIA\AlimempatIA\Projeto6\src\Entrega_1\Backend\IA\dataset_yolo\dataset.yaml',
+        data=r'C:\Projetos\Faculdade\AlimempatIA\AlimempatIA\Projeto6\src\Entrega_2\Backend\IA\dataset_yolo\dataset.yaml',
         
         # Aumentado para 80: Com 7 classes e o modelo maior (Small), mais épocas
         # permitem que a IA fixe melhor as diferenças sutis entre embalagens.
-        epochs=80,      
+        epochs=40,      
         
         # Aumentado para 640: Mais resolução = mais detalhe das embalagens.
         # A câmera do celular captura em resolução alta, então treinamos maior.
