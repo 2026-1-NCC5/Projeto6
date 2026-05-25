@@ -14,7 +14,7 @@ def main():
         
         # Aumentado para 80: Com 7 classes e o modelo maior (Small), mais épocas
         # permitem que a IA fixe melhor as diferenças sutis entre embalagens.
-        epochs=40,      
+        epochs=50,      
         
         # Aumentado para 640: Mais resolução = mais detalhe das embalagens.
         # A câmera do celular captura em resolução alta, então treinamos maior.
